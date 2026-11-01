@@ -14,15 +14,15 @@
 
 namespace PKP\core;
 
-use PKP\user\User;
 use APP\core\Application;
 use APP\facades\Repo;
-use PKP\security\Validation;
-use PKP\validation\ValidatorFactory;
-use Illuminate\Contracts\Auth\UserProvider;
-use Illuminate\Database\ConnectionInterface;
-use Illuminate\Contracts\Hashing\Hasher as HasherContract;
 use Illuminate\Contracts\Auth\Authenticatable as UserContract;
+use Illuminate\Contracts\Auth\UserProvider;
+use Illuminate\Contracts\Hashing\Hasher as HasherContract;
+use Illuminate\Database\ConnectionInterface;
+use PKP\security\Validation;
+use PKP\user\User;
+use PKP\validation\ValidatorFactory;
 
 class PKPUserProvider implements UserProvider
 {
@@ -52,6 +52,7 @@ class PKPUserProvider implements UserProvider
 
     /**
      * Retrieve a user by their unique identifier.
+     *
      * @return \Illuminate\Contracts\Auth\Authenticatable|null
      */
     public function retrieveById($id)
@@ -61,13 +62,15 @@ class PKPUserProvider implements UserProvider
             return $user;
         }
 
-        return Repo::user()->get($id, true);
+        // A disabled account is only resolved for "Login As"
+        return Repo::user()->get($id, Validation::isLoggedInAs());
     }
 
     /**
      * Retrieve a user by their unique identifier and "remember me" token.
      *
      * @param  string   $token
+     *
      * @return \Illuminate\Contracts\Auth\Authenticatable|null
      */
     public function retrieveByToken($id, $token)
@@ -100,12 +103,13 @@ class PKPUserProvider implements UserProvider
      */
     public function updateRememberToken(UserContract $user, $token)
     {
-        if ($user->getRememberToken() === $token) {
-            return;
-        }
-
+        // The guard sets the new token on the user before calling this, so always store it
         $user->setRememberToken($token);
-        Repo::user()->edit($user);
+
+        $this->connection
+            ->table($this->table)
+            ->where($user->getAuthIdentifierName(), $user->getAuthIdentifier())
+            ->update([$user->getRememberTokenName() => $token]);
     }
 
     /**
