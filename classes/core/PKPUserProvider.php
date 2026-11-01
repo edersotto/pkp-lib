@@ -61,7 +61,8 @@ class PKPUserProvider implements UserProvider
             return $user;
         }
 
-        return Repo::user()->get($id, true);
+        // A disabled account is only resolved for "Login As"
+        return Repo::user()->get($id, Validation::isLoggedInAs());
     }
 
     /**
@@ -100,12 +101,13 @@ class PKPUserProvider implements UserProvider
      */
     public function updateRememberToken(UserContract $user, $token)
     {
-        if ($user->getRememberToken() === $token) {
-            return;
-        }
-
+        // The guard sets the new token on the user before calling this, so always store it
         $user->setRememberToken($token);
-        Repo::user()->edit($user);
+
+        $this->connection
+            ->table($this->table)
+            ->where($user->getAuthIdentifierName(), $user->getAuthIdentifier())
+            ->update([$user->getRememberTokenName() => $token]);
     }
 
     /**

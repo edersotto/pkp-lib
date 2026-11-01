@@ -102,6 +102,52 @@ class PKPSessionGuard extends SessionGuard
     }
 
     /**
+     * @copydoc \Illuminate\Auth\SessionGuard::userFromRecaller($recaller)
+     *
+     * A user signed back in from the "remember me" cookie gets the same session data as a sign-in
+     * (userId, username, email), so that every reader of the session agrees on the user; a cookie
+     * that signs no one in is removed. Not on API requests, whose responses do not carry the cookies.
+     */
+    protected function userFromRecaller($recaller)
+    {
+        if ($this->recallAttempted) {
+            return null;
+        }
+
+        if (Application::get()->getRequest()->getRouter() instanceof APIRouter) {
+            $this->recallAttempted = true;
+            return null;
+        }
+
+        $user = parent::userFromRecaller($recaller);
+
+        if ($user) {
+            $this->setUserDataToSession($user);
+            Registry::set('user', $user);
+        } elseif ($recaller->valid()) {
+            $this->getCookieJar()->queue($this->getCookieJar()->forget($this->getRecallerName()));
+            $this->updateSessionCookieToResponse();
+        }
+
+        return $user;
+    }
+
+    /**
+     * @copydoc \Illuminate\Auth\SessionGuard::logoutOtherDevices($password)
+     *
+     * Also sends the "remember me" cookie the parent queues with the new password hash,
+     * so this browser keeps its remembered sign-in.
+     */
+    public function logoutOtherDevices($password)
+    {
+        $user = parent::logoutOtherDevices($password);
+
+        $this->updateSessionCookieToResponse();
+
+        return $user;
+    }
+
+    /**
      * Sign In as different user
      */
     public function signInAs(AuthenticatableContract|User $user): void
@@ -206,11 +252,12 @@ class PKPSessionGuard extends SessionGuard
         /** @var \Illuminate\Http\Response $response */
         $response = app()->get(\Illuminate\Http\Response::class);
 
-        // clear out the previous session and remember me cookies
+        // clear out the previous session cookie and any remember me cookie already set on this response;
+        // the browser keeps its remember me cookie unless a sign in or sign out queued one (below)
         foreach ([$session->getName(), $this->getRecallerName()] as $cookieName) {
             $response->headers->removeCookie($cookieName, $config['path'], $config['domain']);
-            $response->headers->clearCookie($cookieName, $config['path'], $config['domain']);
         }
+        $response->headers->clearCookie($session->getName(), $config['path'], $config['domain']);
 
         $cookie = new Cookie(
             name: $session->getName(),

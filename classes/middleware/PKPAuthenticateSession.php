@@ -31,6 +31,9 @@ class PKPAuthenticateSession extends \Illuminate\Session\Middleware\Authenticate
      */
     public function handle($request, Closure $next)
     {
+        // Sign the user back in from the "remember me" cookie, if any, before the session is first saved
+        $this->guard()->user();
+
         $response = parent::handle($request, $next);
 
         if ($request->hasSession()
@@ -53,10 +56,13 @@ class PKPAuthenticateSession extends \Illuminate\Session\Middleware\Authenticate
      */
     protected function logout($request)
     {
-        Auth::logout();
+        // End this browser's session and remove its "remember me" cookie, as Laravel's AuthenticateSession
+        // does, without cycling the token that keeps the user's other browsers remembered
+        Auth::logoutCurrentDevice();
 
         $request->session()->invalidate();
         $request->session()->regenerateToken();
+        app()->get('auth.driver')->updateSessionCookieToResponse();
 
         return $this->redirectTo($request);
     }
